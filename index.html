@@ -1,0 +1,1263 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>フラッシュあみだくじ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@200;300;400;500&family=Zen+Kaku+Gothic+New:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* Layout: 縦長の一枚図面。上に計器(HUD)、中央にあみだ図面、下に6レーンと同じ幅の回答キー。 */
+:root {
+  --bg: #e6dfd2;        /* ベージュ(地) */
+  --paper: #f6f2e9;     /* 図面の紙 */
+  --white: #ffffff;
+  --ink: #151515;       /* 黒 */
+  --ink-2: #5e5a51;     /* 補助文字 */
+  --rule: #bdb4a3;      /* 細い罫線 */
+  --accent: #d1431a;    /* 丸印だけに使う差し色 */
+  --screen: rgba(246, 242, 233, .95);   /* スタート・結果画面の下地（エクストラ切替時にJSが更新） */
+  --font-display: 'Jost', 'Zen Kaku Gothic New', 'Hiragino Sans', 'Yu Gothic', system-ui, sans-serif;
+  --font-body: 'Zen Kaku Gothic New', 'Hiragino Sans', 'Yu Gothic', system-ui, sans-serif;
+}
+html, body { height: 100%; }
+body {
+  box-sizing: border-box;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  padding-inline: 16px;
+  padding-block: 12px;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+* { box-sizing: border-box; }
+.app {
+  height: 100%;
+  max-width: 460px;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+.top {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  font-family: var(--font-display);
+  font-size: 11px; letter-spacing: .24em; text-transform: uppercase; color: var(--ink-2);
+}
+.brand { color: var(--ink); font-weight: 500; }
+.modetag { font-style: normal; margin-left: 10px; padding: 1px 7px; border: 1px solid var(--accent); color: var(--accent); letter-spacing: .16em; font-weight: 500; }
+.sebtn { border: 1px solid var(--rule); background: none; padding: 2px 9px; font-family: var(--font-display); font-size: 11px; letter-spacing: .2em; color: var(--ink-2); cursor: pointer; touch-action: manipulation; }
+.sebtn[aria-pressed="false"] { color: var(--rule); text-decoration: line-through; }
+.sebtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.toggles { display: flex; gap: 6px; }
+
+.hud {
+  display: grid; grid-template-columns: 1fr 1.4fr 1.2fr;
+  border-top: 2px solid var(--ink); border-bottom: 1px solid var(--ink);
+}
+.hud > div { padding: 8px 0 8px 12px; min-width: 0; border-left: 1px solid var(--rule); }
+.hud > div:first-child { border-left: 0; padding-left: 0; }
+.hud .lbl { font-family: var(--font-display); font-size: 10px; letter-spacing: .22em; text-transform: uppercase; color: var(--ink-2); }
+.hud .val { font-family: var(--font-display); font-weight: 400; font-size: 26px; line-height: 1.15; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hud .val small { font-size: 11px; letter-spacing: .12em; color: var(--ink-2); margin-left: 3px; font-weight: 400; }
+
+.stage {
+  position: relative; flex: 1; min-height: 240px;
+  background: var(--paper);
+  box-shadow: 0 0 0 1px var(--ink);
+  overflow: hidden;
+}
+#view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: manipulation; }
+
+.timer {
+  position: absolute; left: 0; right: 0; top: 40%; bottom: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  pointer-events: none;
+}
+.timer .cap { font-family: var(--font-display); font-size: 11px; letter-spacing: .3em; text-transform: uppercase; color: var(--ink-2); }
+.timer .num { font-family: var(--font-display); font-weight: 200; font-size: clamp(64px, 20vw, 96px); line-height: 1; font-variant-numeric: tabular-nums; }
+.timer .num.urgent { color: var(--accent); }
+.seq { display: flex; justify-content: center; gap: 8px; font-family: var(--font-display); }
+.slot { min-width: 34px; height: 34px; border-bottom: 2px solid var(--rule); text-align: center; font-size: 22px; line-height: 34px; font-variant-numeric: tabular-nums; }
+.slot.done { border-color: var(--ink); }
+.slot.cur { border-color: var(--accent); }
+.timebar { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; background: var(--rule); opacity: .55; }
+.timebar i { display: block; height: 100%; background: var(--ink); transform-origin: left center; transform: scaleX(1); }
+.timebar.urgent i { background: var(--accent); }
+
+.clear {
+  position: absolute; left: 0; right: 0; top: 14px; text-align: center; pointer-events: none;
+  font-family: var(--font-display); display: flex; justify-content: center; align-items: baseline; gap: 14px;
+}
+.clear .big { font-size: 20px; font-weight: 400; letter-spacing: .26em; text-transform: uppercase; }
+.clear .pts { font-size: 14px; letter-spacing: .18em; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+.miss {
+  position: absolute; left: 0; right: 0; top: 14px; pointer-events: none;
+  display: flex; justify-content: center; align-items: baseline; gap: 14px; padding-inline: 12px; flex-wrap: wrap;
+  font-family: var(--font-body);
+}
+.miss .big { font-size: 18px; font-weight: 700; letter-spacing: .16em; }
+.miss .sub { font-size: 13px; letter-spacing: .12em; color: var(--ink-2); }
+
+.screen {
+  position: absolute; inset: 0; z-index: 2;
+  display: flex; flex-direction: column; justify-content: space-between; gap: 14px;
+  padding: 20px 18px 18px; overflow: auto;
+  background: var(--screen);
+}
+.eyebrow { font-family: var(--font-display); font-size: 11px; letter-spacing: .28em; text-transform: uppercase; color: var(--ink-2); display: flex; justify-content: space-between; gap: 8px; }
+.logo { margin: 8px 0 0; font-family: var(--font-display); font-weight: 200; font-size: clamp(54px, 17vw, 88px); line-height: .92; letter-spacing: .02em; text-transform: uppercase; }
+.logo b { font-weight: 500; display: block; }
+.jp { margin: 10px 0 0; font-weight: 700; letter-spacing: .34em; font-size: 13px; }
+.steps { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--ink); }
+.steps li { display: grid; grid-template-columns: 34px 1fr; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--rule); font-size: 13px; line-height: 1.5; }
+.steps li span { font-family: var(--font-display); font-size: 12px; letter-spacing: .12em; color: var(--ink-2); }
+.best-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-family: var(--font-display); font-size: 11px; letter-spacing: .24em; text-transform: uppercase; color: var(--ink-2); }
+.best-row + .best-row { margin-top: 4px; }
+.best-row strong { font-size: 18px; letter-spacing: .06em; color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
+.moderight { display: flex; align-items: center; gap: 10px; }
+.mini { border: 1px solid var(--ink); background: none; padding: 5px 10px; font-family: var(--font-body); font-size: 12px; letter-spacing: .1em; color: var(--ink); cursor: pointer; touch-action: manipulation; }
+@media (hover: hover) { .mini:hover { background: var(--ink); color: var(--white); } }
+.btn {
+  width: 100%; border: 0; cursor: pointer;
+  background: var(--ink); color: var(--white);
+  padding: 17px 16px; font-family: var(--font-display); font-weight: 500; font-size: 14px; letter-spacing: .3em; text-transform: uppercase;
+  touch-action: manipulation;
+}
+.btn small { font-family: var(--font-body); letter-spacing: .2em; margin-left: 10px; font-weight: 400; font-size: 12px; text-transform: none; }
+.btn:focus-visible, .key:focus-visible, .mini:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (hover: hover) { .btn:hover { background: #000; letter-spacing: .34em; } .btn { transition: letter-spacing .2s; } }
+
+.over-title { margin: 6px 0 0; font-family: var(--font-display); font-weight: 200; font-size: clamp(40px, 12vw, 58px); line-height: 1; letter-spacing: .04em; text-transform: uppercase; }
+.verdict { margin: 6px 0 0; font-size: 13px; line-height: 1.6; }
+.tag-new { display: inline-block; margin-left: 10px; padding: 2px 8px; background: var(--accent); color: var(--white); font-family: var(--font-display); font-size: 10px; letter-spacing: .22em; vertical-align: middle; }
+.stats { display: grid; grid-template-columns: 1fr 1fr 1fr; border-top: 2px solid var(--ink); border-bottom: 1px solid var(--ink); }
+.stats > div { padding: 8px 0 8px 10px; border-left: 1px solid var(--rule); min-width: 0; }
+.stats > div:first-child { border-left: 0; padding-left: 0; }
+.stats .lbl { font-size: 10px; letter-spacing: .12em; color: var(--ink-2); }
+.stats .val { font-family: var(--font-display); font-size: 28px; font-weight: 300; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.route { flex: 1; min-height: 120px; position: relative; background: var(--white); box-shadow: 0 0 0 1px var(--rule); }
+.route canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+.pad { display: grid; grid-template-columns: repeat(6, 1fr); }
+.key {
+  height: clamp(56px, 9vh, 76px); margin-left: -1px;
+  border: 1px solid var(--ink); background: var(--white); color: var(--ink);
+  font-family: var(--font-display); font-weight: 300; font-size: 28px; font-variant-numeric: tabular-nums;
+  cursor: pointer; padding: 0; touch-action: manipulation; user-select: none; -webkit-user-select: none;
+}
+.key:first-child { margin-left: 0; }
+.key { -webkit-touch-callout: none; }
+.key.off { background: transparent; color: var(--rule); border-color: var(--ink-2); cursor: default; }
+.key:not(.off):active { background: var(--ink); color: var(--white); }
+@media (hover: hover) { .key:not(.off):hover { background: var(--ink); color: var(--white); } }
+.key.ok { background: var(--ink); color: var(--white); border-color: var(--ink); opacity: 1; }
+.key.ng { background: var(--paper); color: var(--accent); border-color: var(--accent); opacity: 1; }
+/* 数字キーの長押し中、下から黒く塗りつぶされていく（--fill は 0〜1） */
+.key.holding, .key.holding:disabled {
+  background: linear-gradient(to top, var(--ink) calc(var(--fill, 0) * 100%), transparent calc(var(--fill, 0) * 100%));
+  border-color: var(--ink); color: var(--ink);
+}
+
+.banner {
+  position: absolute; inset: 0; z-index: 3; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center;
+  animation: bannerfade 1.8s ease both;
+}
+.banner .b1 { padding: 14px 22px 14px 26px; background: var(--ink); color: var(--white); font-weight: 700; font-size: clamp(22px, 7vw, 30px); letter-spacing: .3em; }
+.banner .b2 { font-family: var(--font-display); font-size: 12px; letter-spacing: .3em; color: var(--ink); text-indent: .3em; }
+@keyframes bannerfade { 0% { opacity: 0; transform: translateY(6px); } 15% { opacity: 1; transform: none; } 75% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
+</style>
+
+<main class="app">
+  <header class="top">
+    <span class="brand">Flash Amida<em class="modetag" id="modeTag" hidden>Extra</em></span>
+    <span class="toggles">
+      <button class="sebtn" id="bgmBtn" type="button" aria-pressed="true" aria-label="BGMの切り替え">BGM ON</button>
+      <button class="sebtn" id="seBtn" type="button" aria-pressed="true" aria-label="効果音の切り替え">SE ON</button>
+    </span>
+  </header>
+
+  <section class="hud" aria-label="ゲーム状況">
+    <div><div class="lbl">Round</div><div class="val" id="hudRound">--</div></div>
+    <div><div class="lbl">Score</div><div class="val" id="hudScore">0</div></div>
+    <div><div class="lbl">Speed</div><div class="val" id="hudSpeed">--</div></div>
+  </section>
+
+  <div class="stage" id="stage">
+    <canvas id="view" aria-label="あみだくじの図面"></canvas>
+
+    <div class="timer" id="timer" hidden>
+      <div class="cap" id="timerCap">Answer · 制限時間</div>
+      <div class="seq" id="seq" hidden></div>
+      <div class="num" id="timerNum">5.00</div>
+      <div class="timebar" id="timerBar"><i id="timerFill"></i></div>
+    </div>
+    <div class="clear" id="clear" hidden>
+      <span class="big">正解</span>
+      <span class="pts" id="clearPts"></span>
+    </div>
+    <div class="miss" id="miss" hidden>
+      <div class="big" id="missBig">不正解</div>
+      <div class="sub" id="missSub"></div>
+    </div>
+
+    <div class="banner" id="banner" hidden>
+      <div class="b1" id="bannerMain">エクストラモード</div>
+      <div class="b2" id="bannerSub"></div>
+    </div>
+
+    <section class="screen" id="titleScreen">
+      <div>
+        <div class="eyebrow"><span>Reflex Game</span><span>反射神経ゲーム</span></div>
+        <h1 class="logo">Flash<b>Amida</b></h1>
+        <p class="jp">フラッシュあみだくじ</p>
+      </div>
+      <ol class="steps">
+        <li><span>01</span>赤い丸が付いたレーンを覚える</li>
+        <li><span>02</span>問題が始まると丸が消える。流れてくる横線をたどって目で追う</li>
+        <li><span>03</span>流れ終わったら、線が流れ続ける中で<span id="limitSec" style="display:inline;letter-spacing:0;color:inherit;font-size:inherit">5</span>秒以内に答える</li>
+      </ol>
+      <div>
+        <div class="best-row"><span>Mode</span><span class="moderight"><strong class="mode-text">Normal</strong><button class="mini clear-extra" type="button" hidden>ノーマルに戻る</button></span></div>
+        <div class="best-row"><span>Best</span><strong id="titleBest">--</strong></div>
+        <div style="height:12px"></div>
+        <button class="btn" id="startBtn" type="button">Start<small>スタート</small></button>
+      </div>
+    </section>
+
+    <section class="screen" id="overScreen" hidden>
+      <div>
+        <div class="eyebrow"><span>Result</span><span id="overRound">Round --</span></div>
+        <h2 class="over-title">Game<br>Over<span class="tag-new" id="newTag" hidden>NEW RECORD</span></h2>
+        <p class="verdict" id="verdict"></p>
+      </div>
+      <div class="best-row"><span>プレイした難易度</span><strong id="overDiff">Normal</strong></div>
+      <div class="stats">
+        <div><div class="lbl">到達ラウンド</div><div class="val" id="overReached">0</div></div>
+        <div><div class="lbl">スコア</div><div class="val" id="overScore">0</div></div>
+        <div><div class="lbl">最高記録</div><div class="val" id="overBest">0</div></div>
+      </div>
+      <div class="route"><canvas id="routeView" aria-label="正解の経路"></canvas></div>
+      <div>
+        <div class="best-row" style="margin-bottom:12px"><span>次のプレイ</span><span class="moderight"><strong class="mode-text">Normal</strong><button class="mini clear-extra" type="button" hidden>ノーマルに戻る</button></span></div>
+        <button class="btn" id="retryBtn" type="button">Retry<small>もう一度</small></button>
+      </div>
+    </section>
+  </div>
+
+  <nav class="pad" id="pad" aria-label="レーン番号で回答"></nav>
+</main>
+
+<script>
+(() => {
+'use strict';
+
+/* =====================================================================
+ *  難易度・見た目の設定（ここだけ触ればバランス調整できます）
+ * ===================================================================== */
+const CONFIG = {
+  // --- 速度（ここが難易度の本体） ---
+  // 各ラウンドの目標速度 = BASE_SPEED + ACCEL * (round - 1)   単位: px/秒
+  //   round  1:170   5:266   8:338   10:386   12:434   15:506
+  // 実際の速度は、正解するたびに次の目標速度へなめらかに近づく。
+  BASE_SPEED: 170,   // 1ラウンド目の目標速度
+  ACCEL: 24,         // 1ラウンドごとに必ず加算される速度
+  SPEED_SMOOTH_SEC: 0.45,    // 加速のなめらかさ（大きいほどヌルッと変わる。時定数・秒）
+
+  // --- スコア ---
+  POINTS_PER_CORRECT: 10,    // 正解1回につき一律このポイント（回答の速さは関係なし）
+
+  // --- 回答・演出の時間 ---
+  ANSWER_MS: 5000,           // あみだくじが流れ終わってからの回答制限時間（全難易度共通）
+  APPROACH_SEC: 1.6,         // 回答後、次のあみだくじが読み取りラインに届くまでの最短時間（加速が終わるのを待つ）
+  MARKER_FADE_IN_MS: 250,    // 回答後、次の開始レーンに丸印が現れるまでの時間
+  MARKER_FADE_MS: 350,       // 問題が始まってから丸印が透明になるまでの時間
+  CLEAR_MS: 900,             // 「正解」表示の長さ
+  OK_MS: 600,                // 正解のマーク（○）を出す長さ
+  FAIL_MS: 1000,             // 不正解・時間切れのマークを見せてからゲームオーバー画面に移るまでの時間
+
+  // --- エクストラモード ---
+  // スタート画面かゲームオーバー画面で、数字キー(2〜6)を EXTRA_HOLD_MS 長押しすると、
+  // その数字が「追う丸の数」になる。丸には開始レーンの左から順に 1, 2, 3 … と数字が付き、
+  // その順に、各丸が着いたレーンの数字キーで答える（全部合って正解）。
+  EXTRA_HOLD_MS: 3000,       // 長押しする時間（押している間、そのキーが下から黒く塗られていく）
+  EXTRA_MIN_LEVEL: 2,        // エクストラにできる最小の丸の数（1つだと通常と同じなので除外）
+  EXTRA_TINT_MIN: 0.3,       // 最低難易度(×2)の背景の赤み 0〜1（0で通常色と同じ。×6が1.0で最も赤い）
+  EXTRA_ANSWER_BONUS_MS: 0,  // 丸が1つ増えるごとに回答時間へ足す時間（0なら難易度によらず同じ）
+
+  // --- 効果音（Web Audioで作る短い控えめな音。右上の「SE ON/OFF」でも切り替えられる） ---
+  SE_VOLUME: 0.5,            // 全体の音量 0〜1（音色ごとの細かい調整は下の SE 表）
+
+  // --- BGM（index.html と同じフォルダーに置いたwavをループ再生） ---
+  BGM_NORMAL_SRC: 'bgm-normal.wav',   // 通常モードのBGM
+  BGM_EXTRA_SRC: 'bgm-extra.wav',     // エクストラモードのBGM（ファイル名を変えたらここも変える）
+  BGM_VOLUME: 0.4,                    // BGMの音量 0〜1
+
+  // --- あみだくじの形（ラウンドで変化しない） ---
+  LANES: 6,
+  ROWS: 11,                  // 横線を置ける段数
+  ROW_H: 52,                 // 1段の高さ(px)
+  RUNG_DENSITY: 0.5,         // 横線の密度 0〜1
+  MIN_PATH_MOVES: 4,         // 丸印1つあたり、経路で最低何回レーンを移るか（複数なら合計で判定）
+
+  // --- エクストラの緩和（通常を1.0とする係数。丸の数が増えるほど小さく＝やさしく） ---
+  //   level:                    ×2    ×3    ×4    ×5    ×6
+  EXTRA_DENSITY_SCALE: [0, 0, 0.80, 0.68, 0.58, 0.50, 0.44],  // 横線の密度にかける係数（分岐の数）
+  EXTRA_ACCEL_SCALE:   [0, 0, 0.60, 0.50, 0.42, 0.35, 0.30],  // 正解ごとの加速量(ACCEL)にかける係数
+  EXTRA_MIN_MOVES:     [0, 0, 3, 2.5, 2, 2, 1.5],             // 丸1つあたりの最低レーン移動回数（分岐が減る分、条件も緩める）
+
+  // --- 見た目 ---
+  ANCHOR_RATIO: 0.26,        // 読み取りライン（横線が通過した瞬間に判定する位置）の画面内の高さ
+  SLIDE_MS: 60,              // 丸印が隣へ移る表示時間
+};
+/* level: 0=通常 / 2〜6=エクストラの丸の数。エクストラは加速がゆるやか（丸が多いほどさらに緩やか） */
+const speedFor = (round, level = 0) =>
+  CONFIG.BASE_SPEED + CONFIG.ACCEL * (level ? CONFIG.EXTRA_ACCEL_SCALE[level] : 1) * (round - 1);
+
+/* =====================================================================
+ *  あみだくじの生成と判定
+ * ===================================================================== */
+const randInt = (n) => Math.floor(Math.random() * n);
+
+/* 開始レーンからあみだくじをたどり、終了レーンと経路を求める */
+function tracePath(start, byRow, length) {
+  const { ROWS, ROW_H } = CONFIG;
+  let lane = start;
+  let moves = 0;
+  const events = [];                   // 経路上でレーンを移る点
+  const pts = [{ x: lane, y: 0 }];     // 経路の折れ線（レーン番号, 縦位置）
+  for (let row = 1; row <= ROWS; row++) {
+    const left = byRow[row].find((r) => r.a === lane - 1);
+    const right = byRow[row].find((r) => r.a === lane);
+    let next = lane;
+    if (left) next = lane - 1;
+    else if (right) next = lane + 1;
+    if (next !== lane) {
+      const y = row * ROW_H;
+      events.push({ y, from: lane, to: next });
+      pts.push({ x: lane, y }, { x: next, y });
+      lane = next;
+      moves++;
+    }
+  }
+  pts.push({ x: lane, y: length });
+  return { start, end: lane, events, pts, moves, num: 0 };
+}
+
+/* starts: 追う丸の開始レーン（0始まり）の配列 */
+function generateLadder(starts) {
+  const { LANES, ROWS, ROW_H } = CONFIG;
+  const level = starts.length > 1 ? starts.length : 0;       // 丸が複数ならエクストラ
+  const RUNG_DENSITY = CONFIG.RUNG_DENSITY * (level ? CONFIG.EXTRA_DENSITY_SCALE[level] : 1);
+  const MIN_PATH_MOVES = level ? CONFIG.EXTRA_MIN_MOVES[level] : CONFIG.MIN_PATH_MOVES;
+  const length = (ROWS + 1) * ROW_H;
+  let best = null;
+
+  for (let attempt = 0; attempt < 300; attempt++) {
+    // 1) 横線を置く。同じ段で同じレーンを共有しない / 直前の段と同じ位置に重ねない
+    const rungs = [];
+    const byRow = [];
+    let prev = new Set();
+    for (let row = 1; row <= ROWS; row++) {
+      const used = new Set();
+      byRow[row] = [];
+      let blocked = -1;
+      for (let a = 0; a < LANES - 1; a++) {
+        if (a === blocked || prev.has(a)) continue;
+        if (Math.random() < RUNG_DENSITY) {
+          const rung = { row, a, y: row * ROW_H };   // レーン a と a+1 を結ぶ（y はこのあみだくじ内の位置）
+          rungs.push(rung);
+          byRow[row].push(rung);
+          used.add(a);
+          blocked = a + 1;
+        }
+      }
+      prev = used;
+    }
+
+    // 2) 開始レーンごとに経路をたどり、正解レーンを先に計算する
+    const tracks = starts.map((s) => tracePath(s, byRow, length));
+    const moves = tracks.reduce((sum, t) => sum + t.moves, 0);
+    best = { rungs, length, tracks, moves, expected: [] };
+    if (moves >= MIN_PATH_MOVES * starts.length) break;
+  }
+  return best;
+}
+
+/* =====================================================================
+ *  状態
+ * ===================================================================== */
+const bestKey = (extra) => (extra ? `flashAmida.best.extra${extra}.v1` : 'flashAmida.best.v1');
+function loadBest(key) {
+  try {
+    const j = JSON.parse(localStorage.getItem(key));
+    if (j && Number.isFinite(j.round) && Number.isFinite(j.score)) return j;
+  } catch (e) { /* 保存できない環境でも遊べる */ }
+  return { round: 0, score: 0 };
+}
+function saveBest(key, b) {
+  try { localStorage.setItem(key, JSON.stringify(b)); } catch (e) { /* noop */ }
+}
+
+/*
+ * 世界座標 P は止まらず増え続ける（画面のスクロール量）。
+ * items = 世界に置かれたあみだくじ。top は世界座標での先頭位置。あみだくじ同士の間は分岐のない直線。
+ */
+const state = {
+  phase: 'title',        // title | run | fail | over
+  round: 1,
+  score: 0,
+  P: 0,
+  speed: 0,              // 現在の実速度（目標へなめらかに近づく）
+  targetSpeed: speedFor(1, 0),
+  items: [],
+  awaiting: false,       // 現在のあみだくじが流れ終わり、回答受付中
+  answerStart: 0,
+  answerLimit: CONFIG.ANSWER_MS,
+  entered: [],           // 回答済みのレーン（エクストラでは丸の数字順に積まれる）
+  lastAnswer: null,
+  extra: 0,              // 0=通常 / 1〜6=エクストラ（追う丸の数）
+  dim: 0,                // 背景の暗さ 0(通常)〜1(エクストラ)。なめらかに動く
+  dimTarget: 0,
+  runExtra: 0,           // 今のプレイで使っているモード
+  nextStarts: null,      // 次のあみだくじの開始レーン（最初は左端から、以降は前回の終了レーン）
+  dotShownAt: 0,        // 丸印を表示し始めた時刻
+  okFx: null,            // 正解の演出 { lanes, t0 }
+  failFx: null,          // 不正解・時間切れの演出 { t0, user, correct }
+  clearUntil: 0,
+  padClearAt: 0,
+  viewH: 520,
+  demo: null,
+  best: loadBest(bestKey(0)),
+  hiddenAt: 0,
+};
+
+/* =====================================================================
+ *  DOM
+ * ===================================================================== */
+const $ = (id) => document.getElementById(id);
+const el = {
+  limitSec: $('limitSec'), seBtn: $('seBtn'), bgmBtn: $('bgmBtn'), hudRound: $('hudRound'), hudScore: $('hudScore'), hudSpeed: $('hudSpeed'),
+  stage: $('stage'), view: $('view'), timer: $('timer'), timerCap: $('timerCap'), seq: $('seq'),
+  timerNum: $('timerNum'), timerBar: $('timerBar'), timerFill: $('timerFill'),
+  clear: $('clear'), clearPts: $('clearPts'), miss: $('miss'), missBig: $('missBig'), missSub: $('missSub'),
+  titleScreen: $('titleScreen'), overScreen: $('overScreen'), titleBest: $('titleBest'),
+  banner: $('banner'), bannerMain: $('bannerMain'), bannerSub: $('bannerSub'),
+  modeTag: $('modeTag'),
+  startBtn: $('startBtn'), retryBtn: $('retryBtn'),
+  overRound: $('overRound'), overDiff: $('overDiff'), overReached: $('overReached'), overScore: $('overScore'), overBest: $('overBest'),
+  newTag: $('newTag'), verdict: $('verdict'), routeView: $('routeView'), pad: $('pad'),
+};
+const clearExtraBtns = Array.from(document.querySelectorAll('.clear-extra'));
+const modeTexts = Array.from(document.querySelectorAll('.mode-text'));
+const ctx = el.view.getContext('2d');
+const rctx = el.routeView.getContext('2d');
+
+const keys = [];
+for (let i = 0; i < CONFIG.LANES; i++) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'key';
+  b.textContent = String(i + 1);
+  b.dataset.lane = String(i);
+  b.classList.add('off');                 // 回答できない間は見た目だけ薄くする（長押しを受け取るため disabled にはしない）
+  b.setAttribute('aria-label', `レーン${i + 1}`);
+  el.pad.appendChild(b);
+  keys.push(b);
+}
+
+const fmt = (n) => n.toLocaleString('en-US');
+const bestText = (b) => (b.round > 0 ? `Round ${b.round} · ${fmt(b.score)} pt` : '--');
+const circled = (n) => String.fromCharCode(0x2460 + n - 1);   // ① ② ③ …
+
+/* 色はCSSのトークンから取得（見た目はCSS側だけで変えられる） */
+const css = getComputedStyle(document.documentElement);
+const readVar = (n) => css.getPropertyValue(n).trim();
+const hexToRgb = (h) => { const v = h.replace('#', ''); return [0, 2, 4].map((i) => parseInt(v.slice(i, i + 2), 16)); };
+const COLOR = {
+  paper: readVar('--paper') || '#f6f2e9',
+  white: readVar('--white') || '#ffffff',
+  ink: readVar('--ink') || '#151515',
+  ink2: readVar('--ink-2') || '#5e5a51',
+  rule: readVar('--rule') || '#bdb4a3',
+  accent: readVar('--accent') || '#d1431a',
+};
+const PAPER_RGB = hexToRgb(COLOR.paper);
+const FONT = "'Jost','Zen Kaku Gothic New',sans-serif";
+const W = 360; // 描画の論理幅。高さは画面比率から決める
+
+/* =====================================================================
+ *  進行
+ * ===================================================================== */
+const now = () => performance.now();
+const activeItem = () => state.items[state.items.length - 1];
+
+let shownSpeed = -1;
+function updateSpeedHud() {
+  const v = Math.round(state.speed);
+  if (v === shownSpeed) return;
+  shownSpeed = v;
+  el.hudSpeed.innerHTML = `${v}<small>px/s</small>`;
+}
+function updateHud() {
+  el.hudRound.textContent = String(state.round).padStart(2, '0');
+  el.hudScore.textContent = fmt(state.score);
+  updateSpeedHud();
+}
+
+function setPad(enabled, correctLane, chosenLane) {
+  keys.forEach((k, i) => {
+    k.classList.toggle('off', !enabled);
+    k.classList.remove('ok', 'ng');
+    if (correctLane != null && i === correctLane) k.classList.add('ok');
+    else if (chosenLane != null && i === chosenLane) k.classList.add('ng');
+  });
+}
+
+/* ---- モード表示 ---- */
+function updateModeUi() {
+  const x = state.extra;
+  el.modeTag.hidden = !x;
+  el.modeTag.textContent = x ? `Extra ×${x}` : '';
+  modeTexts.forEach((m) => { m.textContent = x ? `Extra ×${x}` : 'Normal'; });
+  el.titleBest.textContent = bestText(loadBest(bestKey(x)));
+  clearExtraBtns.forEach((b) => { b.hidden = !x; });
+}
+
+/* エクストラは背景が薄暗く赤みがかる。難易度が高いほど赤みが強い
+ * （色はJSでなめらかに混ぜ、DOMもキャンバスも同じ色にする） */
+const PALETTE = {
+  normal: { bg: '#e6dfd2', paper: '#f6f2e9', white: '#ffffff' },
+  extra: { bg: '#d2ab9d', paper: '#ebcdc2', white: '#f6e3db' },   // 最高難易度（×6）の色。低い難易度ほどここから通常色へ近づく
+};
+const mixRgb = (a, b, t) => {
+  const A = hexToRgb(a), B = hexToRgb(b);
+  return A.map((v, i) => Math.round(v + (B[i] - v) * t));
+};
+const rgbHex = (rgb) => `#${rgb.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+function applyDim(d) {
+  const root = document.documentElement.style;
+  const bg = mixRgb(PALETTE.normal.bg, PALETTE.extra.bg, d);
+  const paper = mixRgb(PALETTE.normal.paper, PALETTE.extra.paper, d);
+  const white = mixRgb(PALETTE.normal.white, PALETTE.extra.white, d);
+  root.setProperty('--bg', rgbHex(bg));
+  root.setProperty('--paper', rgbHex(paper));
+  root.setProperty('--white', rgbHex(white));
+  root.setProperty('--screen', `rgba(${paper.join(',')},.95)`);
+  COLOR.paper = rgbHex(paper);
+  COLOR.white = rgbHex(white);
+  PAPER_RGB[0] = paper[0]; PAPER_RGB[1] = paper[1]; PAPER_RGB[2] = paper[2];
+}
+function updateDim(dt) {
+  if (state.dim === state.dimTarget) return;
+  if (Math.abs(state.dimTarget - state.dim) < 0.002) state.dim = state.dimTarget;
+  else state.dim += (state.dimTarget - state.dim) * (1 - Math.exp(-dt / 0.2));
+  applyDim(state.dim);
+}
+
+/* 切り替わりの表示（黒い帯が一瞬出て消える） */
+function showBanner(main, sub) {
+  el.bannerMain.textContent = main;
+  el.bannerSub.textContent = sub || '';
+  el.banner.hidden = true;
+  void el.banner.offsetWidth;            // アニメーションを最初からやり直す
+  el.banner.hidden = false;
+}
+el.banner.addEventListener('animationend', () => { el.banner.hidden = true; });
+
+/* 難易度(丸の数)→色の濃さ 0〜1。通常=0、最低のエクストラ=EXTRA_TINT_MIN、最高(全レーン)=1 */
+function tintFor(level) {
+  if (!level) return 0;
+  const span = Math.max(1, CONFIG.LANES - CONFIG.EXTRA_MIN_LEVEL);
+  const r = Math.min(1, Math.max(0, (level - CONFIG.EXTRA_MIN_LEVEL) / span));
+  return CONFIG.EXTRA_TINT_MIN + (1 - CONFIG.EXTRA_TINT_MIN) * r;
+}
+
+/* ---- 効果音 ----
+ * 音は短くて静かな単音の組み合わせだけ。[周波数Hz, 開始ms, 長さms, 波形, 音量] の並びで定義する。
+ */
+const SE = {
+  start:       [[523, 0, 90, 'sine', 0.22], [784, 90, 140, 'sine', 0.22]],                                   // ゲームスタート
+  extraOn:     [[392, 0, 80, 'triangle', 0.22], [587, 80, 80, 'triangle', 0.22], [784, 160, 160, 'triangle', 0.22]],   // エクストラ起動（上がる3音）
+  extraOff:    [[587, 0, 90, 'triangle', 0.2], [392, 90, 150, 'triangle', 0.2]],                             // エクストラ解除（下がる2音）
+  answerStart: [[880, 0, 70, 'sine', 0.16]],                                                                 // 回答時間開始
+  timeEnd:     [[262, 0, 120, 'triangle', 0.22], [196, 130, 220, 'triangle', 0.22]],                         // 回答時間終了（時間切れ）
+  correct:     [[784, 0, 70, 'sine', 0.24], [1047, 70, 150, 'sine', 0.24]],                                  // 正解
+  gameOver:    [[392, 0, 140, 'triangle', 0.22], [330, 150, 140, 'triangle', 0.22], [262, 300, 300, 'triangle', 0.22]], // ゲームオーバー
+};
+const SE_KEY = 'flashAmida.se.v1';
+const sfx = {
+  ctx: null,
+  master: null,
+  on: true,
+  /* ブラウザの決まりで、音は最初の操作のあとでないと鳴らせない */
+  unlock() {
+    try {
+      if (!this.ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        this.ctx = new AC();
+        this.master = this.ctx.createGain();
+        this.master.gain.value = CONFIG.SE_VOLUME;
+        this.master.connect(this.ctx.destination);
+      }
+      if (this.ctx.state === 'suspended') this.ctx.resume();
+    } catch (e) { /* 音が出せなくてもゲームは動く */ }
+  },
+  tone(freq, delayMs, durMs, type, vol) {
+    const c = this.ctx;
+    if (!c) return;
+    const t0 = c.currentTime + delayMs / 1000;
+    const t1 = t0 + durMs / 1000;
+    const osc = c.createOscillator();
+    const g = c.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t0);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol, t0 + 0.008);   // プチッというノイズを避ける短い立ち上がり
+    g.gain.exponentialRampToValueAtTime(0.0001, t1);        // 余韻を残さず減衰
+    osc.connect(g);
+    g.connect(this.master);
+    osc.start(t0);
+    osc.stop(t1 + 0.02);
+  },
+  play(name) {
+    if (!this.on) return;
+    try {
+      this.unlock();
+      const notes = SE[name];
+      if (!notes || !this.ctx) return;
+      for (const [f, d, l, type, v] of notes) this.tone(f, d, l, type, v);
+    } catch (e) { /* 音のエラーでゲームを止めない */ }
+  },
+};
+try { sfx.on = localStorage.getItem(SE_KEY) !== 'off'; } catch (e) { /* noop */ }
+function updateSeBtn() {
+  el.seBtn.textContent = sfx.on ? 'SE ON' : 'SE OFF';
+  el.seBtn.setAttribute('aria-pressed', String(sfx.on));
+}
+el.seBtn.addEventListener('click', () => {
+  sfx.on = !sfx.on;
+  try { localStorage.setItem(SE_KEY, sfx.on ? 'on' : 'off'); } catch (e) { /* noop */ }
+  updateSeBtn();
+  el.seBtn.blur();                       // 数字キー操作の邪魔にならないようにフォーカスを外す
+  sfx.play('answerStart');               // ONにしたとき確認の音が鳴る
+});
+window.addEventListener('pointerdown', () => { sfx.unlock(); bgm.apply(); }, { passive: true });
+window.addEventListener('pointerup', () => bgm.apply(), { passive: true });   // スマホは指を離したときが「操作」と数えられることがある
+window.addEventListener('keydown', () => { sfx.unlock(); bgm.apply(); });
+updateSeBtn();
+
+/* ---- BGM ----
+ * 通常用とエクストラ用の2曲を持ち、今のモードの曲だけをループで鳴らす。
+ * モードが変わったら、鳴っていた曲を止めて（頭に戻して）もう一方を頭から流す。
+ * ブラウザの決まりで、最初の操作のあとから鳴り始める。ファイルが無い・読めないときは無音のまま動く。
+ */
+const BGM_KEY = 'flashAmida.bgm.v1';
+const bgm = {
+  on: true,
+  tracks: {},
+  init() {
+    const files = { normal: CONFIG.BGM_NORMAL_SRC, extra: CONFIG.BGM_EXTRA_SRC };
+    try {
+      for (const name of Object.keys(files)) {
+        const a = new Audio();
+        a.src = files[name];
+        a.loop = true;                         // ずっとループ
+        a.preload = 'auto';
+        a.volume = CONFIG.BGM_VOLUME;
+        this.tracks[name] = a;
+      }
+    } catch (e) { /* 音が使えない環境でもゲームは動く */ }
+  },
+  wanted() { return state.extra ? 'extra' : 'normal'; },
+  /* 今流すべき曲だけを鳴らし、それ以外は止めて頭に戻す */
+  apply() {
+    const want = this.on ? this.wanted() : '';
+    for (const name of Object.keys(this.tracks)) {
+      if (name === want) continue;
+      const a = this.tracks[name];
+      if (!a.paused || a.currentTime > 0) {
+        a.pause();
+        try { a.currentTime = 0; } catch (e) { /* noop */ }
+      }
+    }
+    const cur = this.tracks[want];
+    if (cur && cur.paused && !document.hidden) {
+      const p = cur.play();
+      if (p && p.catch) p.catch(() => { /* 自動再生がまだ許可されていない／ファイルが無い */ });
+    }
+  },
+  /* タブが隠れている間は止める（位置は保つ） */
+  pauseAll() {
+    for (const name of Object.keys(this.tracks)) this.tracks[name].pause();
+  },
+};
+try { bgm.on = localStorage.getItem(BGM_KEY) !== 'off'; } catch (e) { /* noop */ }
+function updateBgmBtn() {
+  el.bgmBtn.textContent = bgm.on ? 'BGM ON' : 'BGM OFF';
+  el.bgmBtn.setAttribute('aria-pressed', String(bgm.on));
+}
+el.bgmBtn.addEventListener('click', () => {
+  bgm.on = !bgm.on;
+  try { localStorage.setItem(BGM_KEY, bgm.on ? 'on' : 'off'); } catch (e) { /* noop */ }
+  updateBgmBtn();
+  el.bgmBtn.blur();
+  bgm.apply();
+});
+bgm.init();
+updateBgmBtn();
+
+function setExtra(n) {
+  if (n === state.extra) return;
+  if (n !== 0 && n < CONFIG.EXTRA_MIN_LEVEL) return;
+  state.extra = n;
+  state.dimTarget = tintFor(n);
+  updateModeUi();
+  showBanner(n ? 'エクストラモード' : 'ノーマルモード', n ? `追う丸 ×${n}` : '');
+  sfx.play(n ? 'extraOn' : 'extraOff');
+  bgm.apply();                              // 通常⇔エクストラでBGMを切り替える
+}
+
+/* スタート画面・ゲームオーバー画面で数字キーを長押し → エクストラ */
+const hold = { key: 0, start: 0, done: false, src: '' };   // src: 'key'(キーボード) | 'pointer'(ボタンのタップ長押し)
+function clearHoldPaint(n) {
+  const k = keys[n - 1];
+  k.classList.remove('holding');
+  k.style.removeProperty('--fill');
+  k.style.color = '';
+}
+function cancelHold() {
+  if (hold.key) clearHoldPaint(hold.key);
+  hold.key = 0;
+  hold.done = false;
+  hold.src = '';
+}
+function startHold(n, t, src) {
+  cancelHold();
+  if (n < CONFIG.EXTRA_MIN_LEVEL) return;           // 1番は対象外（塗りも始まらない）
+  hold.src = src;
+  hold.key = n;
+  hold.start = t;
+  hold.done = false;
+}
+function updateHold(t) {
+  if (!hold.key) return;
+  if (state.phase !== 'title' && state.phase !== 'over') { cancelHold(); return; }
+  const p = Math.min(1, (t - hold.start) / CONFIG.EXTRA_HOLD_MS);
+  const k = keys[hold.key - 1];
+  k.classList.add('holding');
+  k.style.setProperty('--fill', String(p));
+  k.style.color = p > 0.55 ? '#fff' : '';        // 黒が増えたら数字を白に
+  if (p >= 1 && !hold.done) { hold.done = true; setExtra(hold.key); }
+}
+
+/* 次のあみだくじを、今の位置の少し先に「繋げて」置く。手前は分岐のない直線のまま */
+function spawnLadder() {
+  const n = Math.max(1, state.runExtra);
+  // 開始レーン: 最初は左端から（通常はレーン1）。以降は前回の終了レーンから
+  const starts = state.nextStarts || Array.from({ length: n }, (_, i) => i);
+  const ladder = generateLadder(starts);
+
+  // 丸の数字: 開始レーンの左から順に 1, 2, 3 …（通常は丸が1つだけなので 1）
+  ladder.tracks.forEach((tr) => { tr.num = 1 + ladder.tracks.filter((o) => o.start < tr.start).length; });
+  // 正解: 丸の数字の小さい順に、その丸が着くレーン
+  ladder.expected = ladder.tracks.slice().sort((a, b) => a.num - b.num).map((tr) => tr.end);
+  state.nextStarts = ladder.tracks.map((tr) => tr.end);
+
+  const entry = Math.max(
+    state.viewH * (1 - CONFIG.ANCHOR_RATIO) + CONFIG.ROW_H,   // 画面の下端より外から入ってくる
+    CONFIG.APPROACH_SEC * state.targetSpeed,                  // 加速が落ち着くまでの距離
+  );
+  state.items.push({ ladder, top: state.P + entry });
+  state.dotShownAt = now();                   // 回答後、開始レーンにまた丸印を出す
+  state.entered = [];
+  // 画面から完全に出た古いあみだくじを捨てる
+  state.items = state.items.filter((it, i, a) => i === a.length - 1 || it.top + it.ladder.length > state.P - state.viewH);
+  state.awaiting = false;
+}
+
+function startGame() {
+  state.runExtra = state.extra;
+  state.best = loadBest(bestKey(state.runExtra));
+  cancelHold();
+  state.round = 1;
+  state.score = 0;
+  state.P = 0;
+  state.speed = 0;                      // 止まった状態からヌルッと加速する
+  state.targetSpeed = speedFor(1, state.runExtra);
+  state.items = [];
+  state.lastAnswer = null;
+  state.nextStarts = null;
+  state.entered = [];
+  state.okFx = null;
+  state.failFx = null;
+  el.miss.hidden = true;
+  state.clearUntil = 0;
+  state.padClearAt = 0;
+  el.titleScreen.hidden = true;
+  el.overScreen.hidden = true;
+  el.timer.hidden = true;
+  el.clear.hidden = true;
+  setPad(false);
+  spawnLadder();
+  updateHud();
+  state.phase = 'run';
+  sfx.play('start');
+}
+
+/* 回答欄（エクストラでは、何番の丸の行き先を答える番かと、入力済みのレーンを見せる） */
+function updateSeq() {
+  const act = activeItem();
+  const total = act.ladder.expected.length;
+  if (state.runExtra === 0) {
+    el.seq.hidden = true;
+    el.timerCap.textContent = 'Answer · 制限時間';
+    return;
+  }
+  const k = state.entered.length;
+  el.timerCap.textContent = `Answer · ${circled(k + 1)} の行き先`;
+  el.seq.hidden = false;
+  el.seq.innerHTML = '';
+  for (let i = 0; i < total; i++) {
+    const s = document.createElement('span');
+    s.className = 'slot' + (i < k ? ' done' : i === k ? ' cur' : '');
+    s.textContent = i < k ? String(state.entered[i] + 1) : '';
+    el.seq.appendChild(s);
+  }
+}
+
+function beginAnswer(t, overshootMs) {
+  const act = activeItem();
+  state.awaiting = true;
+  state.entered = [];
+  state.answerStart = t - overshootMs;
+  state.answerLimit = CONFIG.ANSWER_MS + CONFIG.EXTRA_ANSWER_BONUS_MS * (act.ladder.expected.length - 1);
+  el.timer.hidden = false;
+  el.timerNum.textContent = (state.answerLimit / 1000).toFixed(2);
+  el.timerNum.classList.remove('urgent');
+  el.timerBar.classList.remove('urgent');
+  el.timerFill.style.transform = 'scaleX(1)';
+  updateSeq();
+  setPad(true);
+  sfx.play('answerStart');
+}
+
+function submit(lane) {
+  if (state.phase !== 'run' || !state.awaiting) return;   // 二重入力・流れ中の入力を防ぐ
+  const t = now();
+  const act = activeItem();
+  const expected = act.ladder.expected;
+  const k = state.entered.length;
+  state.lastAnswer = lane;
+  if (lane !== expected[k]) { finish(lane, 'wrong'); return; }   // 順番を間違えたらその場で不正解
+
+  state.entered.push(lane);
+  if (state.entered.length < expected.length) { updateSeq(); return; }   // 次の丸へ
+
+  // 全部合って正解（完答のみ）。流れは止めない
+  state.score += CONFIG.POINTS_PER_CORRECT;
+  state.round += 1;
+  state.targetSpeed = speedFor(state.round, state.runExtra);          // 必ず上がる。実速度はなめらかに追従する
+  state.awaiting = false;
+  el.timer.hidden = true;
+  el.clearPts.textContent = `+${CONFIG.POINTS_PER_CORRECT} pt`;
+  el.clear.hidden = false;
+  state.clearUntil = t + CONFIG.CLEAR_MS;
+  setPad(false, lane, null);
+  state.padClearAt = t + 350;
+  state.okFx = { lanes: state.entered.slice(), t0: t, numbered: state.runExtra > 0 };
+  spawnLadder();
+  updateHud();
+  sfx.play('correct');
+}
+
+function finish(userLane, reason) {
+  const t = now();
+  state.phase = 'fail';                   // マークを見せてからゲームオーバー画面へ（流れは止まる）
+  state.awaiting = false;
+  state.lastAnswer = userLane;
+  const act = activeItem();
+  const expected = act.ladder.expected;
+  const k = state.entered.length;
+  state.failFx = { t0: t, user: userLane, correct: expected[k], reason };
+  sfx.play(reason === 'timeout' ? 'timeEnd' : 'gameOver');   // 時間切れはまず「回答時間終了」、ゲームオーバーの音は結果画面で
+  el.timer.hidden = true;
+  el.clear.hidden = true;
+  const answerText = state.runExtra
+    ? `正解は ${expected.map((l) => l + 1).join(' → ')} の順`
+    : `正解はレーン${expected[0] + 1}`;
+  el.missBig.textContent = reason === 'timeout' ? '時間切れ' : '不正解';
+  el.missSub.textContent = answerText;
+  el.miss.hidden = false;
+  setPad(false, expected[k], userLane);
+
+  const reached = state.round;
+  const prev = state.best;
+  const isNew = reached > prev.round || (reached === prev.round && state.score > prev.score);
+  if (isNew) {
+    state.best = { round: reached, score: state.score };
+    saveBest(bestKey(state.runExtra), state.best);
+  }
+  el.overRound.textContent = `Round ${reached}`;
+  el.overDiff.textContent = state.runExtra ? `Extra ×${state.runExtra}` : 'Normal';   // 結果には「そのプレイの難易度」を固定で表示（あとからモードを変えても変わらない）
+  el.overReached.textContent = String(reached);
+  el.overScore.textContent = fmt(state.score);
+  el.overBest.textContent = `R${state.best.round}`;
+  el.newTag.hidden = !isNew;
+  el.verdict.textContent = reason === 'timeout'
+    ? `時間切れ。${answerText}でした。`
+    : state.runExtra
+      ? `不正解。${answerText}でした。`
+      : `不正解。${answerText}、回答はレーン${userLane + 1}でした。`;
+  updateModeUi();
+}
+
+function showOver() {
+  if (state.phase !== 'fail') return;
+  state.phase = 'over';
+  el.miss.hidden = true;
+  el.overScreen.hidden = false;
+  if (state.failFx && state.failFx.reason === 'timeout') sfx.play('gameOver');
+}
+
+function update(t, dt) {
+  if (state.padClearAt && t >= state.padClearAt) { state.padClearAt = 0; setPad(false); }
+  if (state.clearUntil && t >= state.clearUntil) { state.clearUntil = 0; el.clear.hidden = true; }
+  if (state.phase === 'fail' && t - state.failFx.t0 >= CONFIG.FAIL_MS) showOver();
+  if (state.phase !== 'run') return;
+
+  // 速度は目標へなめらかに近づく（フレームレートに依存しない指数追従）
+  state.speed += (state.targetSpeed - state.speed) * (1 - Math.exp(-dt / CONFIG.SPEED_SMOOTH_SEC));
+  state.P += state.speed * dt;                 // 画面は止まらない
+  updateSpeedHud();
+
+  const act = activeItem();
+  const endP = act.top + act.ladder.length;
+  if (!state.awaiting && state.P >= endP) {
+    beginAnswer(t, state.speed > 0 ? (state.P - endP) / state.speed * 1000 : 0);
+  }
+  if (state.awaiting) {
+    const remaining = state.answerLimit - (t - state.answerStart);
+    if (remaining <= 0) { finish(null, 'timeout'); return; }
+    el.timerNum.textContent = (remaining / 1000).toFixed(2);
+    el.timerFill.style.transform = `scaleX(${remaining / state.answerLimit})`;
+    const urgent = remaining < 1000;
+    el.timerNum.classList.toggle('urgent', urgent);
+    el.timerBar.classList.toggle('urgent', urgent);
+  }
+}
+
+/* =====================================================================
+ *  描画
+ * ===================================================================== */
+function fit(canvas, c) {
+  const rect = canvas.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+  const pw = Math.max(1, Math.round(rect.width * dpr));
+  const ph = Math.max(1, Math.round(rect.height * dpr));
+  if (canvas.width !== pw || canvas.height !== ph) { canvas.width = pw; canvas.height = ph; }
+  const s = pw / W;
+  c.setTransform(s, 0, 0, s, 0, 0);
+  return { H: ph / s };
+}
+
+const laneX = (i) => (i + 0.5) * W / CONFIG.LANES;
+const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+const lerp = (a, b, t) => a + (b - a) * t;
+
+function label(c, text, x, y, size, color, weight = 500, align = 'center') {
+  c.font = `${weight} ${size}px ${FONT}`;
+  c.textAlign = align;
+  c.textBaseline = 'middle';
+  c.fillStyle = color;
+  c.fillText(text, x, y);
+}
+
+/* 赤い丸。num があれば中に数字を入れる（エクストラ） */
+function drawDot(c, x, y, num) {
+  c.fillStyle = COLOR.accent;
+  c.strokeStyle = COLOR.ink;
+  c.lineWidth = 2;
+  c.beginPath(); c.arc(x, y, 13, 0, Math.PI * 2); c.fill(); c.stroke();
+  if (num) {
+    label(c, String(num), x, y + 0.5, 15, COLOR.white, 500);
+  } else {
+    c.fillStyle = COLOR.white;
+    c.beginPath(); c.arc(x, y, 3.5, 0, Math.PI * 2); c.fill();
+  }
+}
+
+/* 丸印の現在位置（レーン番号の小数）。横線が読み取りラインを通過した瞬間に移動する */
+function markerLane(track, scroll, speed) {
+  let cur = track.start;
+  for (const ev of track.events) {
+    if (scroll < ev.y) break;
+    const dt = speed > 0 ? (scroll - ev.y) / speed * 1000 : CONFIG.SLIDE_MS;
+    if (dt < CONFIG.SLIDE_MS) return lerp(ev.from, ev.to, ease(dt / CONFIG.SLIDE_MS));
+    cur = ev.to;
+  }
+  return cur;
+}
+
+/* 世界座標 P の位置を画面に映す。レーンは画面全体を貫く一直線で、あみだくじはその上に置かれる */
+function drawWorld(c, H, items, P, opts) {
+  const { ROW_H } = CONFIG;
+  const anchorY = H * CONFIG.ANCHOR_RATIO;
+  const sy = (w) => anchorY + w - P;
+
+  // 段の目盛り（建築図面の寸法線のように左端へ）
+  c.lineWidth = 1;
+  c.strokeStyle = COLOR.rule;
+  const first = Math.floor((P - anchorY) / ROW_H) * ROW_H;
+  for (let w = first; sy(w) <= H + 12; w += ROW_H) {
+    const y = sy(w);
+    if (y < -12) continue;
+    const idx = Math.round(w / ROW_H);
+    const major = ((idx % 5) + 5) % 5 === 0;
+    c.beginPath(); c.moveTo(0, y); c.lineTo(major ? 10 : 5, y); c.stroke();
+    if (major) label(c, String(((idx % 100) + 100) % 100).padStart(2, '0'), 13, y, 9, COLOR.ink2, 500, 'left');
+  }
+
+  // レーン（途切れない直線）
+  c.lineCap = 'butt';
+  c.strokeStyle = COLOR.ink;
+  c.lineWidth = 2.5;
+  c.beginPath();
+  for (let i = 0; i < CONFIG.LANES; i++) { c.moveTo(laneX(i), -4); c.lineTo(laneX(i), H + 4); }
+  c.stroke();
+
+  // 横線
+  for (const it of items) {
+    const { ladder, top } = it;
+    c.lineWidth = 2.5;
+    c.beginPath();
+    for (const r of ladder.rungs) {
+      const y = sy(top + r.y);
+      if (y < -4 || y > H + 4) continue;
+      c.moveTo(laneX(r.a), y); c.lineTo(laneX(r.a + 1), y);
+    }
+    c.stroke();
+  }
+
+  // 通過済みの部分は紙の色で薄く消す
+  if (opts.fade) {
+    const g = c.createLinearGradient(0, 0, 0, anchorY - 6);
+    g.addColorStop(0, `rgba(${PAPER_RGB.join(',')},0.96)`);
+    g.addColorStop(1, `rgba(${PAPER_RGB.join(',')},0)`);
+    c.fillStyle = g;
+    c.fillRect(0, 0, W, anchorY);
+  }
+
+  // 読み取りライン（断面記号のような三角と破線）
+  if (opts.reader) {
+    c.strokeStyle = COLOR.ink;
+    c.lineWidth = 1;
+    c.setLineDash([4, 4]);
+    c.beginPath(); c.moveTo(12, anchorY); c.lineTo(W - 12, anchorY); c.stroke();
+    c.setLineDash([]);
+    c.fillStyle = COLOR.ink;
+    c.beginPath(); c.moveTo(0, anchorY - 5); c.lineTo(9, anchorY); c.lineTo(0, anchorY + 5); c.closePath(); c.fill();
+    c.beginPath(); c.moveTo(W, anchorY - 5); c.lineTo(W - 9, anchorY); c.lineTo(W, anchorY + 5); c.closePath(); c.fill();
+  }
+
+  if (opts.dots) {
+    c.globalAlpha = opts.dotAlpha;
+    for (const d of opts.dots) drawDot(c, laneX(d.lane), anchorY, d.num);
+    c.globalAlpha = 1;
+  }
+}
+
+/* 全体を縮尺して正解の経路を示す図（ゲームオーバー画面） */
+function drawRoute(c, H, ladder, failLane, numbered) {
+  const padT = 40, padB = 40;
+  const y2 = (y) => padT + y * (H - padT - padB) / ladder.length;
+
+  c.strokeStyle = COLOR.rule;
+  c.lineWidth = 1.5;
+  c.beginPath();
+  for (let i = 0; i < CONFIG.LANES; i++) { c.moveTo(laneX(i), y2(0)); c.lineTo(laneX(i), y2(ladder.length)); }
+  for (const r of ladder.rungs) { c.moveTo(laneX(r.a), y2(r.y)); c.lineTo(laneX(r.a + 1), y2(r.y)); }
+  c.stroke();
+
+  c.strokeStyle = COLOR.accent;
+  c.lineWidth = numbered ? 3 : 4;
+  c.lineJoin = 'round';
+  c.lineCap = 'round';
+  for (const tr of ladder.tracks) {
+    c.beginPath();
+    tr.pts.forEach((p, i) => {
+      const x = laneX(p.x), y = y2(p.y);
+      if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+    });
+    c.stroke();
+  }
+  c.lineCap = 'butt';
+
+  const starts = new Set(ladder.tracks.map((t) => t.start));
+  const ends = new Set(ladder.tracks.map((t) => t.end));
+  for (let i = 0; i < CONFIG.LANES; i++) {
+    const s = starts.has(i), e = ends.has(i);
+    label(c, String(i + 1), laneX(i), y2(0) - 18, 13, s ? COLOR.accent : COLOR.ink2, s ? 700 : 500);
+    label(c, String(i + 1), laneX(i), y2(ladder.length) + 18, 13, e ? COLOR.accent : COLOR.ink2, e ? 700 : 500);
+  }
+  for (const tr of ladder.tracks) {
+    // 始点の丸印
+    c.fillStyle = COLOR.accent; c.strokeStyle = COLOR.ink; c.lineWidth = 2;
+    c.beginPath(); c.arc(laneX(tr.start), y2(0), 10, 0, Math.PI * 2); c.fill(); c.stroke();
+    if (numbered) label(c, String(tr.num), laneX(tr.start), y2(0) + 0.5, 13, COLOR.white, 500);
+    // 終点
+    c.fillStyle = COLOR.white; c.strokeStyle = COLOR.accent; c.lineWidth = 3.5;
+    c.beginPath(); c.arc(laneX(tr.end), y2(ladder.length), 10, 0, Math.PI * 2); c.fill(); c.stroke();
+    if (numbered) label(c, String(tr.num), laneX(tr.end), y2(ladder.length) + 0.5, 13, COLOR.accent, 700);
+  }
+  if (failLane != null) {
+    const x = laneX(failLane), y = y2(ladder.length) + 36;
+    c.strokeStyle = COLOR.ink; c.lineWidth = 2;
+    c.beginPath(); c.moveTo(x - 6, y - 6); c.lineTo(x + 6, y + 6); c.moveTo(x + 6, y - 6); c.lineTo(x - 6, y + 6); c.stroke();
+  }
+}
+
+/* 正解・不正解のマーク（読み取りライン上の答えのレーンに重ねる。控えめに） */
+function drawFx(c, H, t) {
+  const anchorY = H * CONFIG.ANCHOR_RATIO;
+  const ring = (x, alpha, num) => {
+    c.globalAlpha = alpha; c.strokeStyle = COLOR.ink; c.lineWidth = 3;
+    c.beginPath(); c.arc(x, anchorY, 18, 0, Math.PI * 2); c.stroke();
+    if (num) label(c, String(num), x, anchorY + 0.5, 14, COLOR.ink, 700);
+    c.globalAlpha = 1;
+  };
+
+  // 回答受付中: 合っていた入力を、丸の数字つきの○で残していく
+  if (state.awaiting && state.entered.length && state.runExtra) {
+    state.entered.forEach((lane, i) => ring(laneX(lane), 1, i + 1));
+  }
+
+  const ok = state.okFx;
+  if (ok) {
+    const p = (t - ok.t0) / CONFIG.OK_MS;
+    if (p >= 1) { state.okFx = null; } else {
+      const a = p < 0.5 ? 1 : 1 - (p - 0.5) / 0.5;
+      ok.lanes.forEach((lane, i) => ring(laneX(lane), a, ok.numbered ? i + 1 : 0));
+    }
+  }
+
+  const f = state.failFx;
+  if (f && state.phase === 'fail') {
+    if (state.runExtra) state.entered.forEach((lane, i) => ring(laneX(lane), 1, i + 1));
+    if (f.user != null) {                                    // 押したレーンに×
+      const x = laneX(f.user), d = 10;
+      c.strokeStyle = COLOR.ink; c.lineWidth = 3;
+      c.beginPath(); c.moveTo(x - d, anchorY - d); c.lineTo(x + d, anchorY + d); c.moveTo(x + d, anchorY - d); c.lineTo(x - d, anchorY + d); c.stroke();
+    }
+    ring(laneX(f.correct), 1, state.runExtra ? state.entered.length + 1 : 0);   // 正解レーン
+    label(c, '正解', laneX(f.correct), anchorY + 34, 11, COLOR.ink, 700);
+  }
+}
+
+function render(t) {
+  const { H } = fit(el.view, ctx);
+  state.viewH = H;
+  ctx.fillStyle = COLOR.paper;
+  ctx.fillRect(0, 0, W, H);
+
+  if (state.phase === 'title') {
+    drawWorld(ctx, H, [{ ladder: state.demo, top: 0 }], CONFIG.ROW_H * 5, { fade: true, reader: false });
+    return;
+  }
+
+  const act = activeItem();
+  let dots = null;
+  let dotAlpha = 0;
+  if (state.phase === 'run' && !state.awaiting) {
+    const s = state.P - act.top;                       // このあみだくじの中での読み取り位置（負なら問題はまだ始まっていない）
+    const fadeIn = Math.min(1, (t - state.dotShownAt) / CONFIG.MARKER_FADE_IN_MS);
+    const fadeOut = s <= 0 ? 1 : 1 - Math.min(1, s / Math.max(1, state.speed * CONFIG.MARKER_FADE_MS / 1000));
+    dotAlpha = fadeIn * fadeOut;
+    if (dotAlpha > 0.01) {
+      // 読み取りラインの開始レーンに固定して表示し、問題が始まると透明になる
+      dots = act.ladder.tracks.map((tr) => ({
+        lane: markerLane(tr, Math.max(s, 0), state.speed),
+        num: state.runExtra ? tr.num : 0,
+      }));
+    }
+  }
+  drawWorld(ctx, H, state.items, state.P, { fade: true, reader: true, dots, dotAlpha });
+  drawFx(ctx, H, t);
+
+  if (state.phase === 'over') {
+    const r = fit(el.routeView, rctx);
+    rctx.fillStyle = COLOR.white;
+    rctx.fillRect(0, 0, W, r.H);
+    drawRoute(rctx, r.H, act.ladder, state.failFx ? state.failFx.user : null, state.runExtra > 0);
+  }
+}
+
+/* =====================================================================
+ *  入力・メインループ
+ * ===================================================================== */
+el.pad.addEventListener('pointerdown', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const lane = Number(b.dataset.lane);
+  if (state.phase === 'title' || state.phase === 'over') {
+    startHold(lane + 1, now(), 'pointer');         // スタート・結果画面では、ボタンの長押しでエクストラ
+    try { b.setPointerCapture(e.pointerId); } catch (err) { /* 非対応でも動く */ }
+  } else {
+    submit(lane);                                  // ゲーム中は回答（回答受付中でなければ無視される）
+  }
+});
+el.pad.addEventListener('contextmenu', (e) => e.preventDefault());   // スマホの長押しメニューを出さない
+el.pad.addEventListener('click', (e) => {          // キーボード操作用（pointerdownで処理済みなら無視される）
+  const b = e.target.closest('button');
+  if (b && e.detail === 0) submit(Number(b.dataset.lane));
+});
+window.addEventListener('keydown', (e) => {
+  if (e.repeat) return;
+  const n = Number(e.key);
+  if (!(n >= 1 && n <= CONFIG.LANES)) return;
+  if (state.phase === 'title' || state.phase === 'over') startHold(n, now(), 'key');   // 長押しでエクストラ
+  else submit(n - 1);
+});
+window.addEventListener('keyup', (e) => {
+  if (hold.src === 'key' && Number(e.key) === hold.key) cancelHold();
+});
+window.addEventListener('blur', cancelHold);
+const releasePointer = () => { if (hold.src === 'pointer') cancelHold(); };
+window.addEventListener('pointerup', releasePointer);
+window.addEventListener('pointercancel', releasePointer);
+el.startBtn.addEventListener('click', startGame);
+el.retryBtn.addEventListener('click', startGame);
+clearExtraBtns.forEach((b) => b.addEventListener('click', () => setExtra(0)));
+
+let lastT = now();
+/* タブが隠れている間は時間を止める（戻った瞬間に時間切れ・急加速にならないように） */
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { state.hiddenAt = now(); cancelHold(); bgm.pauseAll(); return; }
+  const t = now();
+  bgm.apply();
+  if (state.hiddenAt) state.answerStart += t - state.hiddenAt;
+  state.hiddenAt = 0;
+  lastT = t;
+});
+
+function frame() {
+  const t = now();
+  const dt = Math.min(Math.max((t - lastT) / 1000, 0), 0.1);   // 経過時間ベース（長いフレームは丸める）
+  lastT = t;
+  if (!document.hidden) { updateHold(t); updateDim(dt); update(t, dt); render(t); }
+  requestAnimationFrame(frame);           // ループは1本だけ。リトライでも増やさない
+}
+
+el.limitSec.textContent = String(CONFIG.ANSWER_MS / 1000);   // 説明文の秒数は設定値に合わせる
+state.demo = generateLadder([0]);
+updateModeUi();
+el.hudRound.textContent = '--';
+el.hudSpeed.innerHTML = `${speedFor(1)}<small>px/s</small>`;
+requestAnimationFrame(frame);
+})();
+</script>
+
+</body></html>
