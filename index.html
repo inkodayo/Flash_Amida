@@ -443,7 +443,7 @@ const state = {
   dim: 0,                // 背景の暗さ 0(通常)〜1(エクストラ)。なめらかに動く
   dimTarget: 0,
   runExtra: 0,           // 今のプレイで使っているモード
-  nextStarts: null,      // 次のあみだくじの開始レーン（最初は左端から、以降は前回の終了レーン）
+  nextStarts: null,      // 次のあみだくじの開始レーン（番号順。最初は左端から、以降は前回の終了レーンを同じ番号順で）
   dotShownAt: 0,        // 丸印を表示し始めた時刻
   okFx: null,            // 正解の演出 { lanes, t0 }
   failFx: null,          // 不正解・時間切れの演出 { t0, user, correct }
@@ -782,8 +782,9 @@ function spawnLadder() {
   const starts = state.nextStarts || Array.from({ length: n }, (_, i) => i);
   const ladder = generateLadder(starts);
 
-  // 丸の数字: 開始レーンの左から順に 1, 2, 3 …（通常は丸が1つだけなので 1）
-  ladder.tracks.forEach((tr) => { tr.num = 1 + ladder.tracks.filter((o) => o.start < tr.start).length; });
+  // 丸の数字: starts の並び順がそのまま番号（1, 2, 3 …）。最初は左端のレーンから順、
+  // 2問目以降は nextStarts が「前の問題の番号順の終了レーン」なので、番号は前の問題から引き継がれる
+  ladder.tracks.forEach((tr, i) => { tr.num = i + 1; });
   // 正解: 丸の数字の小さい順に、その丸が着くレーン
   ladder.expected = ladder.tracks.slice().sort((a, b) => a.num - b.num).map((tr) => tr.end);
   state.nextStarts = ladder.tracks.map((tr) => tr.end);
